@@ -3,3 +3,4 @@
 .nextflow*
 .*.swp
 bin/bc_parser
+work

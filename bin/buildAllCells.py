@@ -236,46 +236,57 @@ class BarcodeCounts:
 #####################
 
 
+
 def main():
     parser = argparse.ArgumentParser()
 
-    # Required and optional arguments for specifying the STARsolo outputs for this sample
-    parser.add_argument("--STARsolo_out", type = Path, required = True, help = "Path to the STARsolo outputs for this sample.")
-    parser.add_argument("--feature_type", type = str, required = False, default = 'GeneFull_Ex50pAS', help = "STARsolo feature type used.")
-    parser.add_argument("--matrix_type", type = str, required = False, default = 'UniqueAndMult-PropUnique.mtx', help = "STARsolo matrix type used.")
-    parser.add_argument("--isBarnyard", default = False, action = "store_true", help = "If set, this sample will be interpreted as a barnyard sample (i.e. mixed mouse and human).")
-
-    # Optional argument to specify the name of the sample for which cells are being called
-    parser.add_argument("--sample", type = str, required = False, default = "example", help = "Unique string to identify this sample.")
-
-    # Optional argument to specify the library structure for this sample
-    parser.add_argument("--libStruct", type = Path, required = False, help = "Path to the library structure json for this sample.")
-
-    # Optional argument to specify whether this is a merged workflow
-    parser.add_argument("--isMerge", default = False, action = "store_true", help = "If set, workflow is merged, and sample names will be extracted from the group name.")
+    # Only change needed: Update default feature_type to include SJ
+    parser.add_argument("--feature_type", type=str, nargs='+', 
+                       required=False, 
+                       default=['GeneFull_Ex50pAS', 'SJ'],  # Only this line changed
+                       help="STARsolo feature type(s) used.")
+    
+    # [Keep all other argument definitions exactly the same]
+    parser.add_argument("--STARsolo_out", type=Path, required=True, help="Path to the STARsolo outputs for this sample.")
+    parser.add_argument("--matrix_type", type=str, required=False, default='UniqueAndMult-PropUnique.mtx', help="STARsolo matrix type used.")
+    parser.add_argument("--isBarnyard", default=False, action="store_true", help="If set, this sample will be interpreted as a barnyard sample (i.e. mixed mouse and human).")
+    parser.add_argument("--sample", type=str, required=False, default="example", help="Unique string to identify this sample.")
+    parser.add_argument("--libStruct", type=Path, required=False, help="Path to the library structure json for this sample.")
+    parser.add_argument("--isMerge", default=False, action="store_true", help="If set, workflow is merged, and sample names will be extracted from the group name.")
 
     args = parser.parse_args()
 
+    # Resolve file paths for each feature type
     sample_specific_file_paths = io.resolve_sample_specific_file_paths(args.STARsolo_out, args.feature_type, args.matrix_type)
-    genes = read_genes(sample_specific_file_paths)
-    barcodes = read_barcodes(sample_specific_file_paths)
-    umi_counts_by_species = count_transcripts(sample_specific_file_paths, genes, barcodes, args.isBarnyard)
-    allCells = build_allCells(sample_specific_file_paths, umi_counts_by_species, args.isBarnyard).reindex(list(barcodes['barcode']))
 
-    if (args.libStruct is not None):
-        allCells = split_barcodes(args.libStruct, allCells)
+    # Process each feature type
+    for feature_type, file_paths in sample_specific_file_paths.items():
+        print(f"Processing feature type: {feature_type}")
 
-    # When this is a merged sample, the sample name is actually a "group" name; in order to get the correct sample name we extract it from the barcode
-    if(args.isMerge):
-        allCells['sample'] = [barcode.split("_")[1] for barcode in allCells.index.tolist()]
-    else:
-        allCells['sample'] = args.sample
+        # Skip processing if matrix.mtx is missing (this will automatically skip SJ)
+        if 'mtx' not in file_paths:
+            print(f"Skipping {feature_type} because matrix.mtx is missing.")
+            continue
 
-    metricsDir = Path(".", f"{args.sample}_metrics")
-    metricsDir.mkdir(parents = True)
+        # [Keep all original processing code exactly the same]
+        genes = read_genes(file_paths)
+        barcodes = read_barcodes(file_paths)
+        umi_counts_by_species = count_transcripts(file_paths, genes, barcodes, args.isBarnyard)
+        allCells = build_allCells(file_paths, umi_counts_by_species, args.isBarnyard).reindex(list(barcodes['barcode']))
 
-    # Write allCells.csv for this sample
-    allCells.to_csv(f"{metricsDir}/{args.sample}_allCells.csv")
+        if args.libStruct is not None:
+            allCells = split_barcodes(args.libStruct, allCells)
+
+        if args.isMerge:
+            allCells['sample'] = [barcode.split("_")[1] for barcode in allCells.index.tolist()]
+        else:
+            allCells['sample'] = args.sample
+
+        metricsDir = Path(".", f"{args.sample}_metrics")
+        metricsDir.mkdir(parents=True, exist_ok=True)
+
+        # Only modification here: Keep original output name regardless of feature_type
+        allCells.to_csv(f"{metricsDir}/{args.sample}_allCells.csv")
 
 if __name__ == "__main__":
     main()

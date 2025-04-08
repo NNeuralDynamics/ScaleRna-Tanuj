@@ -270,60 +270,56 @@ def calculate_sample_stats(all_cells: pd.DataFrame, internal_report: bool, is_ce
     return stats_stats_df
 
 
-def generate_filtered_matrix(sample_specific_file_paths: dict[str, Path], all_cells: pd.DataFrame, sample: str) -> None:
+def generate_filtered_matrix(sample_specific_file_paths: dict, all_cells: pd.DataFrame, sample: str) -> None:
     """
-    Generates and writes a filtered cell-by-gene expression matrix. 
+    Generates and writes a filtered cell-by-gene expression matrix.
+    """
+    # Get the correct path structure
+    if isinstance(sample_specific_file_paths, dict) and 'GeneFull_Ex50pAS' in sample_specific_file_paths:
+        gene_paths = sample_specific_file_paths['GeneFull_Ex50pAS']
+    else:
+        gene_paths = sample_specific_file_paths  # fallback to original structure
 
-    Args:
-        sample_specific_file_paths: Dictionary where each key is a custom file identifier and each value is a path to the identified file in the STARsolo output directory
-        all_cells: An allCells.csv containing metrics computed across all barcodes in this sample 
-        sample: Unique string to identify this sample
-    
-    Returns:
-        None. A filtered matrix is written to the {sample}_filtered_star_output directory
-    """
     cells_passing = all_cells['pass'].to_dict()
     filtered_path = f"{sample}_filtered_star_output"
+    
+    # Create output directory (with parents if needed)
+    Path(filtered_path).mkdir(parents=True, exist_ok=True)
 
-    # Create /filtered directory under current directory
-    Path(".", filtered_path).mkdir(exist_ok=True)
+    # Verify source files exist
+    required_sources = {
+        'features': gene_paths['features'],
+        'barcodes': gene_paths['barcodes'],
+        'mtx': gene_paths['mtx']
+    }
+    
+    for file_key, source_path in required_sources.items():
+        if not Path(source_path).exists():
+            raise FileNotFoundError(f"Source file {file_key} not found at {source_path}")
 
-    # Features.tsv is the same; we move it to that /filtered directory
-    shutil.copyfile(sample_specific_file_paths['features'], f"{filtered_path}/features.tsv")
+    # Copy features file
+    features_dest = Path(filtered_path) / "features.tsv"
+    shutil.copyfile(required_sources['features'], features_dest)
 
-    # File pointer to raw matrix.mtx and barcodes.tsv
-    f_raw_mtx = open(sample_specific_file_paths['mtx'])
-    f_raw_barcodes = open(sample_specific_file_paths['barcodes'])
+    # Process matrix and barcodes
+    with (open(required_sources['mtx']) as f_raw_mtx,
+         open(required_sources['barcodes']) as f_raw_barcodes,
+         open("tmp_matrix.mtx", "w") as f_filtered_mtx_tmp,
+         open(Path(filtered_path) / "barcodes.tsv", "w") as f_filtered_barcodes):
 
-    # File pointers to newly created filtered matrix.mtx and barcodes.tsv
-    with (open("tmp_matrix.mtx", "w") as f_filtered_mtx_tmp, open(f"{filtered_path}/barcodes.tsv", "w") as f_filtered_barcodes):
-
-        # Read in barcodes from raw barcodes file
-        raw_barcodes = f_raw_barcodes.readlines()
-        raw_barcodes = [line.rstrip() for line in raw_barcodes]
-
-        # Data type header
+        raw_barcodes = [line.rstrip() for line in f_raw_barcodes]
         header = f_raw_mtx.readline().strip()
+        f_raw_mtx.readline(); f_raw_mtx.readline()  # Skip header lines
 
-        # Skip extra header lines
-        f_raw_mtx.readline(); f_raw_mtx.readline() 
-
-        # Set current barcode to 0 to ensure that the first time we compare current_barcode to the barcode received from iterating over the raw matrix, we set current_barcode to that barcode
         current_barcode = 0
-
-        # Row number in barcodes.tsv
         barcode_row_number = 1
-
-        # Count number of lines for writing as header later on
         line_count = 0
 
-        # Iterate over every line in raw matrix.mtx
         for line in f_raw_mtx:
             split_line = line.split()
             feature, barcode, count = int(split_line[0]), int(split_line[1]), float(split_line[2])
             barcode_sequence = raw_barcodes[barcode - 1]
 
-            # If barcode has passing cells in the all_cells dataframe, write to file
             if cells_passing[barcode_sequence]:
                 if barcode != current_barcode:
                     current_barcode = barcode
@@ -333,70 +329,87 @@ def generate_filtered_matrix(sample_specific_file_paths: dict[str, Path], all_ce
                 f_filtered_mtx_tmp.write(f"{feature} {barcode_row_number-1} {count}\n")
                 line_count += 1
 
-    f_raw_mtx.close()
-    f_raw_barcodes.close()
-    f_filtered_barcodes.close()
-
-    # Compute header information for the matrix; first entry is length of filtered features.tsv
-    header1 = len(pd.read_csv(sample_specific_file_paths['features'], sep = "\t", header = None).index)
-
-    # Second entry is length of filtered barcodes.tsv
+    # Write final matrix
+    header1 = len(pd.read_csv(required_sources['features'], sep="\t", header=None).index)
     header2 = barcode_row_number - 1
-
-    # Third entry is length of filtered matrix.mtx
     header3 = line_count
 
-    with open(f"{filtered_path}/matrix.mtx", "w") as f_filtered_mtx:
-        f_filtered_mtx.write(f"{header}\n%\n")
-        f_filtered_mtx.write(f"{header1} {header2} {header3}\n")
-    if line_count > 0:
-        os.system(f"cat tmp_matrix.mtx >> {filtered_path}/matrix.mtx")
+    with open(Path(filtered_path) / "matrix.mtx", "w") as f_filtered_mtx:
+        f_filtered_mtx.write(f"{header}\n%\n{header1} {header2} {header3}\n")
+        if line_count > 0:
+            with open("tmp_matrix.mtx") as tmp_file:
+                f_filtered_mtx.write(tmp_file.read())
+
+    # Cleanup
     try:
-        if os.path.isfile("tmp_matrix.mtx"):
-            os.remove("tmp_matrix.mtx")
+        Path("tmp_matrix.mtx").unlink(missing_ok=True)
     except Exception as e:
-        print(e, file = sys.stderr)
+        print(f"Warning: Could not remove temp file - {str(e)}", file=sys.stderr)
 
 def main():
     parser = argparse.ArgumentParser()
     
     # Required argument for specifying the path to the sampleMetrics CSV file
-    parser.add_argument("--sampleMetrics", type = Path, required = True, help = "Path to the sampleMetrics CSV file.") 
+    parser.add_argument("--sampleMetrics", type=Path, required=True, 
+                       help="Path to the sampleMetrics CSV file.") 
 
-    # Required and optional arguments for specifying the STARsolo outputs for this sample
-    parser.add_argument("--STARsolo_out", type = Path, required = True, help = "Path to the STARsolo outputs for this sample.")
-    parser.add_argument("--feature_type", type = str, required = False, default = 'GeneFull_Ex50pAS', help = "STARsolo feature type used.")
-    parser.add_argument("--matrix_type", type = str, required = False, default = 'UniqueAndMult-PropUnique.mtx', help = "STARsolo matrix type used.")
-
-    # Optional argument to specify the name of the sample for which cells are being called
-    parser.add_argument("--sample", type = str, required = False, default = "example", help = "Unique string to identify this sample.")
-
-    # Optional argument to set hard thresholds for cell calling 
-    parser.add_argument("--fixedCells", required = False, action="store_true", default=False, help = "Fixed number of barcodes to call as cells.")
-
-    # Optional arguments for use of CellFinder algorithm
-    parser.add_argument("--expectedCells", type = int, required = False, default = 0, help = "Expected number of cells to call (if specified in samples.csv; see algorithm description).")
-    parser.add_argument("--topCellPercent", type = int, required = False, default = 99, help = "Cell thresholding parameter (see algorithm description).")
-    parser.add_argument("--minCellRatio", type = float, required = False, default = 10, help = "Cell thresholding parameter (see algorithm description).")
-    parser.add_argument("--minUTC", type = int, required = False, default = 100, help = "The minimum number of unique transcript counts a barcode must be associated with to be considered a potential cell.")
-    parser.add_argument("--UTC", type=int, default=0, help="Set a fixed unique transcript count threshold for a barcode to be called cell.")
-    # CellFinder parameters
-    parser.add_argument("--cellFinder", action = "store_true", help="Use CellFinder to call cells from among barcodes with counts between --minUTC and the UTC threshold")
-    parser.add_argument("--FDR", type=float, default = 0.001, help="False discovery rate at which to call cells (see algorithm description).")
-    parser.add_argument("--alpha", type=float, default=None, help="Set a fixed overdispersion (Dirichlet alpha) parameter for CellFinder. If none, estimated from ambient barcodes")
-    # MAD outlier filtering
-    parser.add_argument("--filter_outliers", required = False, action="store_true", help = "Number of median absolute deviations in gene count/UMI count/mitochondrial read percentage above/below which a cell will be flagged as an outlier.")
-    parser.add_argument("--madsReads", type=float, default=np.nan, help = "MAD threshold for total reads (+/- X MADs)")
-    parser.add_argument("--madsPassingReads", type=float, default=np.nan, help = "MAD threshold for passing reads fraction (- x MADs)")
-    parser.add_argument("--madsMito", type=float, default=np.nan, help = "MAD threshold for mito. reads (+ x MADs)")
+    # Modified to support multiple feature types while keeping original defaults
+    parser.add_argument("--feature_type", type=str, nargs="+", 
+                       required=False, default=['GeneFull_Ex50pAS'],
+                       help="STARsolo feature type(s) used.")
     
-    # Optional argument to specify whether to generate statistics for internal report
+    # Required and optional arguments for specifying the STARsolo outputs
+    parser.add_argument("--STARsolo_out", type=Path, required=True,
+                       help="Path to the STARsolo outputs for this sample.")
+    parser.add_argument("--matrix_type", type=str, required=False,
+                       default='UniqueAndMult-PropUnique.mtx',
+                       help="STARsolo matrix type used.")
+
+    # Optional argument to specify the name of the sample
+    parser.add_argument("--sample", type=str, required=False,
+                       default="example",
+                       help="Unique string to identify this sample.")
+
+    # Cell calling parameters (keep all original arguments)
+    parser.add_argument("--fixedCells", action="store_true", default=False,
+                       help="Fixed number of barcodes to call as cells.")
+    parser.add_argument("--expectedCells", type=int, default=0,
+                       help="Expected number of cells.")
+    parser.add_argument("--topCellPercent", type=int, default=99,
+                       help="Cell thresholding parameter.")
+    parser.add_argument("--minCellRatio", type=float, default=10,
+                       help="Cell thresholding parameter.")
+    parser.add_argument("--minUTC", type=int, default=100,
+                       help="Minimum unique transcript counts for cell calling.")
+    parser.add_argument("--UTC", type=int, default=0,
+                       help="Fixed UTC threshold for cell calling.")
+    parser.add_argument("--cellFinder", action="store_true",
+                       help="Use CellFinder algorithm.")
+    parser.add_argument("--FDR", type=float, default=0.001,
+                       help="False discovery rate for CellFinder.")
+    parser.add_argument("--alpha", type=float, default=None,
+                       help="Fixed overdispersion parameter for CellFinder.")
+    
+    # MAD outlier filtering
+    parser.add_argument("--filter_outliers", action="store_true",
+                       help="Enable MAD outlier filtering.")
+    parser.add_argument("--madsReads", type=float, default=np.nan,
+                       help="MAD threshold for total reads.")
+    parser.add_argument("--madsPassingReads", type=float, default=np.nan,
+                       help="MAD threshold for passing reads fraction.")
+    parser.add_argument("--madsMito", type=float, default=np.nan,
+                       help="MAD threshold for mito. reads.")
+    
+    # Optional argument for internal report
     parser.add_argument("--internalReport", action="store_true", default=False)
 
     args = parser.parse_args()
 
-    sample_specific_file_paths = io.resolve_sample_specific_file_paths(args.STARsolo_out, args.feature_type, args.matrix_type)
-    
+    # Resolve file paths
+    sample_specific_file_paths = io.resolve_sample_specific_file_paths(
+        args.STARsolo_out, args.feature_type, args.matrix_type)
+
+    # Initialize options
     call_cells_options = CellCallingOptions(
         fixedCells=args.fixedCells,
         expectedCells=args.expectedCells,
@@ -415,22 +428,32 @@ def main():
         passing_mads=args.madsPassingReads,
         mito_mads=args.madsMito
     )
-    all_cells = call_cell_barcodes(sample_specific_file_paths['mtx'], args.sampleMetrics, options=call_cells_options)
+
+    # Process gene features
+    gene_paths = sample_specific_file_paths['GeneFull_Ex50pAS'] if 'GeneFull_Ex50pAS' in sample_specific_file_paths else sample_specific_file_paths
+    all_cells = call_cell_barcodes(gene_paths['mtx'], args.sampleMetrics, options=call_cells_options)
     mad_stats = filter_cells(all_cells, options=outlier_options)
-    sample_stats = calculate_sample_stats(all_cells, internal_report=args.internalReport, 
-                                          is_cellFinder=call_cells_options.cellFinder,
-                                          filter_outliers=outlier_options.filter_outliers)
+    sample_stats = calculate_sample_stats(
+        all_cells, 
+        internal_report=args.internalReport,
+        is_cellFinder=call_cells_options.cellFinder,
+        filter_outliers=outlier_options.filter_outliers
+    )
     sample_stats = pd.concat([sample_stats, mad_stats])
 
-    # Write filtered matrix for this sample
-    generate_filtered_matrix(sample_specific_file_paths, all_cells, args.sample)
-
-    metrics_dir = Path(".", f"{args.sample}_metrics")
+    # Write outputs
+    metrics_dir = Path(f"{args.sample}_metrics")
     metrics_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write allCells.csv for this sample
+    
     all_cells.to_csv(metrics_dir / f"{args.sample}_allCells.csv")
     sample_stats.to_csv(metrics_dir / f"{args.sample}_sample_stats.csv", index=False)
+    
+    # Modified call to generate_filtered_matrix
+    generate_filtered_matrix(
+        sample_specific_file_paths['GeneFull_Ex50pAS'] if 'GeneFull_Ex50pAS' in sample_specific_file_paths else sample_specific_file_paths,
+        all_cells,
+        args.sample
+    )
 
 if __name__ == "__main__":
     main()

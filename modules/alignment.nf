@@ -8,6 +8,7 @@ output:
 	tuple(val(sample), path("Aligned.sortedByCoord.out.bam"), emit: bam, optional: true)
 	tuple(val(sample), path("Log.*"), emit: log)
 	tuple(val(sample), path("Solo.out"), emit: solo)
+	tuple(val(sample), path("SJ.*"), emit: sj)
 
 // If params.splitFastq is true we publish individual split outputs into params.outDir/alignment/<sample>/split/
 // with output filenames <sample>.<count>.*
@@ -16,6 +17,7 @@ output:
 publishDir { outDir }, pattern: "Solo.out", mode: 'copy', saveAs: { "${outName}.star.solo" }
 publishDir { outDir / "${outName}.star.align" }, pattern: "*bam", mode: 'copy', saveAs: { "${outName}.bam" }, enabled: params.bamOut
 publishDir { outDir / "${outName}.star.align" }, pattern: "Log*", mode: 'copy'
+publishDir { outDir / "${outName}.star.align" }, pattern: "SJ.*", mode: 'copy', saveAs: { "${outName}.SJ.out.tab" }
 tag "$sample $count"
 script:
 	outDir = file(params.outDir) / "alignment" / sample
@@ -27,14 +29,14 @@ script:
 	
 	barcodeParam = library["star_barcode_param"]
 	if (params.bamOut) {
-		bamOpts = "--outSAMtype BAM SortedByCoordinate --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM gx gn --outSAMunmapped Within"
+		bamOpts = "--outSAMtype BAM SortedByCoordinate --outSAMattributes NH HI nM AS CR CB UB UR GX GN sS sQ sM gx gn --outSAMunmapped Within"
     } else {
         bamOpts = "--outSAMtype None" 
     }
 """
 	STAR --runThreadN $task.cpus --genomeDir $indexDir \
 	$barcodeParam ${params.starTrimming} \
-    $bamOpts --outSJtype None --soloCellReadStats Standard \
+    $bamOpts --outSJtype Standard --soloCellReadStats Standard \
 	--soloStrand ${params.starStrand} --soloFeatures ${params.starFeature} --soloMultiMappers ${params.starMulti} \
 	--readFilesIn <(cat transcript*.fastq.gz) <(cat barcode*.fastq.gz) --readFilesCommand zcat
 """
@@ -58,6 +60,20 @@ script:
 """
 }
 
+process merge_sj {
+    input:
+        tuple(val(sample), path("SJ.out.tab*"))
+    output:
+        tuple(val(sample), path(outDir), emit: merge_sj)
+    label "report"
+    tag "$sample"
+    publishDir file(params.outDir) / "alignment", mode:'copy'
+    script:
+        outDir = "${sample}/${sample}.star.align"
+    """
+        cat SJ.out.tab* > ${outDir}/${sample}.merged.SJ.out.tab
+    """
+}
 
 workflow alignment {
 take:
@@ -124,7 +140,16 @@ main:
 		solo_out = starsolo.out.solo
 	}
 	solo_out.dump(tag:'soloOut')
+	if (params.splitFastq) {
+		// Merge splice junction files
+    		star_sj_by_sample = starsolo.out.sj.groupTuple()
+    		merge_sj(star_sj_by_sample)
+    		sj_out = merge_sj.out.merge_sj
+	} else {
+    		sj_out = starsolo.out.sj
+	}
 
 emit:
     soloOut = solo_out
+    sjOut = sj_out
 }
