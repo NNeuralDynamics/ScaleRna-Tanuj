@@ -123,15 +123,19 @@ nextflow -version
 ```
 
 ### Required Inputs
+```
 FASTQ files directory
 /scratch/thakkar.tan/Scale/Data/Data/renamed_fastqs/
+
 Sample sheet (CSV)
 /scratch/thakkar.tan/Scale/Data/samples_minimal.csv
+
 Genome reference JSON (GRCh38)
 /projects/talisman/tanuj/scRNAseq/test_run/nextflow_star_test/grch38.json
+
 Library structure JSON
 /scratch/thakkar.tan/scRNAseq_test/ScaleRna/references/libV1.1.json
-
+```
 
 ## Command line to run the workflow:
 
@@ -150,8 +154,9 @@ nextflow run ./ -profile conda \
 ```
 
 ## Output files:
+```
 /scratch/thakkar.tan/Scale/Data/final_output_2/
-
+```
 
 
 
