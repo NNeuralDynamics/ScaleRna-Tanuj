@@ -1,6 +1,14 @@
-# ScaleBio Seq Suite: RNA Workflow
+# ScaleBio RNA-Seq Pipeline (Custom Scale-bio samples)
 
-This is a Nextflow workflow to run analysis of ScaleBio Single Cell RNA Sequencing libraries. It processes data from sequencing reads to alignments, single-cell outputs (gene-expression matrix, etc.), and QC reports.
+This is a customized fork of the [ScaleBio RNA-Seq](https://github.com/ScaleBio/ScaleRna) Nextflow workflow to analyze **human single-cell RNA-seq** data generated using the QuantumScale RNA assay.
+
+This version is designed for:
+- FASTQ-based inputs (not BCL)
+- GRCh38 human genome reference
+- Custom sample sheet
+- Custom library structure
+- Conda-based execution
+
 
 ## Getting started
 * First install [Nextflow](http://www.nextflow.io) (version 23.10 or later)
@@ -96,3 +104,56 @@ See the [change log](changelog.md)
 
 # License
 By purchasing product(s) and downloading the software product(s) of ScaleBio, You accept all of the terms of the [License Agreement](LICENSE.md). If You do not agree to these terms and conditions, You may not use or download any of the software product(s) of ScaleBio.
+
+
+
+## In order to run the specific Scale bio samples
+
+```bash
+# Clone the repository
+git clone https://github.com/NNeuralDynamics/ScaleRna-Tanuj.git
+cd ScaleRna-Tanuj
+
+# Load Java and Conda environment
+module load java/11
+conda activate scalebio_env  # (name of the scale bio env created from instructions above)
+
+# Confirm Nextflow installation
+nextflow -version
+```
+
+### Required Inputs
+FASTQ files directory
+/scratch/thakkar.tan/Scale/Data/Data/renamed_fastqs/
+Sample sheet (CSV)
+/scratch/thakkar.tan/Scale/Data/samples_minimal.csv
+Genome reference JSON (GRCh38)
+/projects/talisman/tanuj/scRNAseq/test_run/nextflow_star_test/grch38.json
+Library structure JSON
+/scratch/thakkar.tan/scRNAseq_test/ScaleRna/references/libV1.1.json
+
+
+## Command line to run the workflow:
+
+```
+nextflow run ./ -profile conda \
+  --samples /scratch/thakkar.tan/Scale/Data/samples_minimal.csv \
+  --fastqDir /scratch/thakkar.tan/Scale/Data/Data/renamed_fastqs/ \
+  --genome /projects/talisman/tanuj/scRNAseq/test_run/nextflow_star_test/grch38.json \
+  --libStructure /scratch/thakkar.tan/scRNAseq_test/ScaleRna/references/libV1.1.json \
+  --starFeature "GeneFull_Ex50pAS SJ" \
+  --bamOut true \
+  --fastqc true \
+  --merge true \
+  --scalePlex false \
+  --outDir /scratch/thakkar.tan/Scale/Data/final_output_2
+```
+
+## Output files:
+/scratch/thakkar.tan/Scale/Data/final_output_2/
+
+
+
+
+
+
