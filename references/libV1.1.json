@@ -1,19 +1,18 @@
 {
-"linkers": [
-    {"read": "read1", "start_min": 8, "start_max": 9, "name": "splint", "sequence":"TCAGAGC"}
-],
-"barcodes" : [
-    {"read": "read1", "start": 0, "length": 9, "name": "lig", "sequences": "3lvlRNA_lig.txt", "level":2, "alias":"Ligation"},
-    {"read": "read1", "anchor": "splint", "offset": 15, "length": 10, "name": "rt", "sequences": "3lvlRNA_rt.txt", "level":1, "alias":"RT"},
-    {"read": "read1", "anchor": "splint", "offset": 7, "length": 8, "name": "umi", "type": "umi"},
-    {"read": "index2", "start": 0, "length": 10, "name": "pcr", "sequences": "3lvlRNA_pcr.txt", "level":3, "alias":"i5", "rev_comp": false}
-],
-"sample_barcode": "rt",
-"star_barcode_param": "--soloType CB_UMI_Simple --soloCBlen 29 --soloUMIstart 30 --soloUMIlen 8 --soloCBwhitelist None",
-"bcl_convert": {
-    "library_barcodes": "3lvlRNA_p7Pools.txt",
-    "index2Seqs": "3lvlRNA_pcr.txt",
-    "index2RevComp": false,
-    "split_on": "index2"
-}
-}
+    "linkers": [
+      {"read": "read1", "start_min": 8, "start_max": 9, "name": "splint", "sequence":"TCAGAGC"}
+    ],
+    "barcodes": [
+      {"read": "read1", "start": 0, "length": 9, "name": "lig", "sequences": "3lvlRNA_lig.txt", "level":2, "alias":"Ligation"},
+      {"read": "read1", "anchor": "splint", "offset": 15, "length": 10, "name": "rt", "sequences": "3lvlRNA_rt.txt", "level":1, "alias":"RT"},
+      {"read": "read1", "anchor": "splint", "offset": 7, "length": 8, "name": "umi", "type": "umi"}
+    ],
+    "requireIndex": false,
+    "fastq_pattern": "ScaleRNA_25205FL-[0-9]+-[0-9]+-[0-9]+_L[0-9]+_R[12]_001\\.fastq\\.gz",
+    "sample_barcode": "rt",
+    "star_barcode_param": "--soloType CB_UMI_Simple --soloCBlen 19 --soloUMIstart 20 --soloUMIlen 8 --soloCBmatchWLtype 1MM_multi --soloUMIfiltering MultiGeneUMI --soloCBwhitelist None --soloBarcodeReadLength 0",
+    "bcl_convert": {
+      "library_barcodes": "3lvlRNA_p7Pools.txt",
+      "split_on": "sample"
+    }
+  }
